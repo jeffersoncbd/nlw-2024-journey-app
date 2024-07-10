@@ -1,0 +1,22 @@
+services:
+  journey_postgres:
+    image: postgres:16
+    container_name: journey_postgres
+    environment:
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASS}
+      POSTGRES_DB: ${DATABASE_NAME}
+
+  application:
+    build: .
+    container_name: application
+    ports:
+      - 8080:8080
+    environment:
+      DATABASE_USER: ${DATABASE_USER}
+      DATABASE_PASS: ${DATABASE_PASS}
+      DATABASE_PORT: 5432
+      DATABASE_HOST: journey_postgres
+      DATABASE_NAME: ${DATABASE_NAME}
+    depends_on:
+      - journey_postgres
