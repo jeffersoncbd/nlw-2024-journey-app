@@ -6,6 +6,20 @@ services:
       POSTGRES_USER: ${DATABASE_USER}
       POSTGRES_PASSWORD: ${DATABASE_PASS}
       POSTGRES_DB: ${DATABASE_NAME}
+    volumes:
+      - journey_postgres:/var/lib/postgresql/data
+
+  journey_mailpit:
+    image: axllent/mailpit:latest
+    container_name: journey_mailpit
+    environment:
+      MP_DATABASE: /data/mailpit.db
+    ports:
+      - 1024:1024
+      - 8025:8025
+    volumes:
+      - journey_mailpit:/data
+
 
   application:
     build: .
@@ -20,3 +34,9 @@ services:
       DATABASE_NAME: ${DATABASE_NAME}
     depends_on:
       - journey_postgres
+
+volumes:
+  journey_postgres:
+    driver: local
+  journey_mailpit:
+    driver: local

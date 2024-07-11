@@ -2,11 +2,13 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"journey/internal/api/spec"
 	"journey/internal/pgstore"
 	"net/http"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,19 +16,30 @@ import (
 )
 
 type Store interface {
-	GetParticipant(ctx context.Context, participant uuid.UUID) (pgstore.Participant, error)
-	ConfirmParticipant(ctx context.Context, participant uuid.UUID) error
+	CreateTrip(context.Context, *pgxpool.Pool, spec.CreateTripRequest) (uuid.UUID , error)
+	GetParticipant(context.Context, uuid.UUID) (pgstore.Participant, error)
+	ConfirmParticipant(context.Context, uuid.UUID) error
+}
+
+type mailer interface {
+	SendConfirmTripEmailToTripOwner(uuid.UUID) error
 }
 
 type API struct {
-	store Store
-	logger *zap.Logger
+	store		Store
+	logger		*zap.Logger
+	validator	*validator.Validate
+	pool		*pgxpool.Pool
+	mailer		mailer
 }
 
-func NewAPI(pool *pgxpool.Pool, logger *zap.Logger) API {
+func NewAPI(pool *pgxpool.Pool, logger *zap.Logger, mailer mailer) API {
 	return API{
         store: pgstore.New(pool),
         logger: logger,
+		validator: validator.New(validator.WithRequiredStructEnabled()),
+		pool: pool,
+		mailer: mailer,
     }
 }
 
@@ -68,7 +81,28 @@ func (api API) PatchParticipantsParticipantIDConfirm(w http.ResponseWriter, r *h
 // Create a new trip
 // (POST /trips)
 func (api API) PostTrips(w http.ResponseWriter, r *http.Request) *spec.Response {
-	panic("not implemented") // TODO: Implement
+	var body spec.CreateTripRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return spec.PostTripsJSON400Response(spec.Error{Message: "Invalid json: "+err.Error()})
+	}
+
+	if err := api.validator.Struct(body); err!= nil {
+        return spec.PostTripsJSON400Response(spec.Error{Message: "Campo inválido: " + err.Error()})
+    }
+
+	tripID, err := api.store.CreateTrip(r.Context(), api.pool, body)
+	if err != nil {
+		api.logger.Error("POST /trips: falha ao tentar criar a viagem", zap.Error(err))
+		return spec.PostTripsJSON400Response(spec.Error{Message: "algo deu errado... tente novamente"})
+	}
+
+	go func() {
+		if err := api.mailer.SendConfirmTripEmailToTripOwner(tripID); err != nil {
+			api.logger.Error("POST /trips: falha ao tentar enviar email de confirmação", zap.Error(err))
+		}
+	}()
+
+	return spec.PostTripsJSON201Response(spec.CreateTripResponse{TripID: tripID.String()})
 }
 
 // Get a trip details.
